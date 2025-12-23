@@ -31,15 +31,21 @@ head masks for computational mechanics workflows.
 ### Installation
 
 1. Clone this repository from GitHub:
+```
 git clone https://github.com/autotwin/autovalidate.git
 cd autovalidate
+```
 
 2. (Optional) Create and activate a Python environment, for example with `conda`:
+```
 conda create -n autovalidate python=3.9
 conda activate autovalidate
+```
 
 3. Install Python dependencies:
+```
 pip install -r requirements.txt
+```
 
 4. Ensure FreeSurfer is installed and configured.
 
@@ -49,12 +55,16 @@ pip install -r requirements.txt
    You can quickly check this with:
 
    **Option 1**: check the environment variable
+   ```
    echo "$FREESURFER_HOME"
+   ```
 
    **Option 2**: check the binaries are on your PATH
+   ```
    which mri_convert
    which mri_synthseg
-
+   ```
+   
    If these commands return empty output or “not found”, FreeSurfer is not set
    up correctly. Please follow the official FreeSurfer installation and setup
    instructions for your platform:
