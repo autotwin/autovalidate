@@ -1,8 +1,0 @@
-[project]
-name = "autovalidate"
-version = "0.0.1"
-requires-python = ">=3.10"
-
-[build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.build_meta"
