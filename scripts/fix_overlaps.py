@@ -8,8 +8,7 @@ from autovalidate.cleanup import fix_overlaps_for_subject
 # Edit these variables for your environment before running.
 
 # Directory of your study
-# BASE = "path/to/study"
-BASE = "/projectnb/lejlab2/Evangelos_Practice/Autovalidate"
+BASE = "path/to/study"
 
 # Inputs
 BRAIN_DIR = os.path.join(BASE, "Extracted_Brains")
