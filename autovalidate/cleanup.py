@@ -17,11 +17,11 @@ def fix_overlaps_for_subject(BRAIN_DIR, CSF_DIR, SKULL_DIR, OUT_DIR, subj_root):
     )
     csf_file = os.path.join(
         CSF_DIR,
-        f"{subj_root}_tMRIreg_T1_SynthSeg_CSF_with_interface.nii.gz",
+        f"{subj_root}_tMRIreg_T1_SynthSeg_CSF_with_inner_layer.nii.gz",
     )
     skull_file = os.path.join(
         SKULL_DIR,
-        f"{subj_root}_tMRIreg_T1_SynthSeg_skull_without_interface.nii.gz",
+        f"{subj_root}_tMRIreg_T1_SynthSeg_skull_without_inner_layer.nii.gz",
     )
 
     if not os.path.exists(brain_file):
