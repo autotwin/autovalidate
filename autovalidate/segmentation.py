@@ -29,6 +29,7 @@ def extract_brain(input_file, destination_folder):
     os.makedirs(destination_folder, exist_ok=True)
 
     for seg_path in _iter_nii_files(Path(input_file)):
+        print(f"[BRAIN] Extracting brain mask from: {seg_path.name}")
         seg_img = nib.load(str(seg_path))
         seg_data = seg_img.get_fdata().astype(int)
 
@@ -43,6 +44,7 @@ def extract_brain(input_file, destination_folder):
 
         mask_path = destination_folder / mask_name
         nib.save(nib.Nifti1Image(brain_mask, seg_img.affine), str(mask_path))
+        print(f"   -> Saved: {mask_path.name}")
 
 
 def extract_CSF(input_file, destination_folder):
@@ -54,6 +56,7 @@ def extract_CSF(input_file, destination_folder):
     os.makedirs(destination_folder, exist_ok=True)
 
     for seg_path in _iter_nii_files(Path(input_file)):
+        print(f"[CSF] Extracting CSF mask from: {seg_path.name}")
         seg_img = nib.load(str(seg_path))
         seg = seg_img.get_fdata().astype(int)
 
@@ -70,6 +73,7 @@ def extract_CSF(input_file, destination_folder):
 
         mask_path = destination_folder / mask_name
         nib.save(nib.Nifti1Image(csf_mask, seg_img.affine), str(mask_path))
+        print(f"   -> Saved: {mask_path.name}")
 
 
 def _remove_small_components(mask, min_size=5000, connectivity=1):
@@ -81,91 +85,107 @@ def _remove_small_components(mask, min_size=5000, connectivity=1):
     cleaned = np.isin(labels, keep)
     return cleaned
 
-def outer_shell_brain_csf(brain_mask_img, csf_mask_img,
-                          thickness_vox=5,
-                          min_cc_size=0):
+def create_skull(brain_mask: np.ndarray, csf_mask: np.ndarray,
+                 thickness_voxels: int,
+                 min_size: int = 5000) -> np.ndarray:
     """
-    Create an outer shell of fixed thickness around brain+CSF.
+    Create a skull mask as an outward shell around the combined brain+CSF mask,
+    and remove small connected-component islands.
     """
-    brain = brain_mask_img.get_fdata() > 0
-    csf   = csf_mask_img.get_fdata() > 0
-    brain_csf = brain | csf
+    if brain_mask.shape != csf_mask.shape:
+        raise ValueError("brain_mask and csf_mask must have the same shape")
+    if thickness_voxels <= 0:
+        raise ValueError("thickness_voxels must be > 0")
 
-    # 1) dilate brain+CSF
-    struct = ball(thickness_vox)
-    dil = binary_dilation(brain_csf, structure=struct)
+    print(f"   -> Dilating combined mask by {thickness_voxels} voxels to create skull layer...")
+    combined = (brain_mask.astype(bool) | csf_mask.astype(bool))
 
-    # 2) outer shell: dilated minus original
-    shell = dil & (~brain_csf)
+    struct = ball(thickness_voxels)
+    outer = binary_dilation(combined, structure=struct)
 
-    # 3) optional small-component removal
-    if min_cc_size > 0:
-        shell = _remove_small_components(shell, min_size=min_cc_size)
+    skull = outer & ~combined
 
-    return shell.astype(np.uint8)
+    print(f"   -> Cleaning small disconnected components (min_size={min_size})...")
+    # Remove small islands
+    skull_clean = _remove_small_components(skull, min_size=min_size)
 
-
-def process_subject(brain_mask_path, csf_mask_path, out_dir,
-                    thickness_vox=5, min_cc_size=0):
-    brain_img = nib.load(brain_mask_path)
-    csf_img   = nib.load(csf_mask_path)
-
-    if brain_img.shape != csf_img.shape:
-        raise RuntimeError(f"Shape mismatch: {brain_mask_path} vs {csf_mask_path}")
-
-    shell = outer_shell_brain_csf(
-        brain_img, csf_img,
-        thickness_vox=thickness_vox,
-        min_cc_size=min_cc_size,
-    )
-
-    base = os.path.basename(brain_mask_path)
-    root, _ = os.path.splitext(base)
-    root, _ = os.path.splitext(root)
-    subject_root = root.replace("_brain_mask", "")
-
-    out_nii = os.path.join(out_dir, subject_root + "_braincsf_outer_shell.nii.gz")
-
-    nib.save(nib.Nifti1Image(shell, brain_img.affine, brain_img.header), out_nii)
-
-    print("Saved shell:", out_nii)
+    return skull_clean.astype(np.uint8)
 
 
-def process_all_brain_csf_shells(
-    brain_dir: Path,
-    csf_dir: Path,
-    out_dir: Path,
-    thickness_vox: int = 5,
-    min_cc_size: int = 0,
+def process_all_brain_csf_skulls(
+    synthseg_root: str | Path,
+    brain_out: str | Path,
+    csf_out: str | Path,
+    skull_out: str | Path,
+    thickness_voxels: int = 5,
+    min_cc_size: int = 10000,
 ) -> None:
     """
-    For every brain mask in brain_dir, find the matching CSF mask in csf_dir
-    and create the outer shell (skull-like) mask in out_dir. [file:112]
+    High-level pipeline:
+      1) For each SynthSeg segmentation, save brain and CSF masks.
+      2) Build skull (outer shell) masks from brain+CSF.
     """
-    brain_dir = Path(brain_dir)
-    csf_dir = Path(csf_dir)
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    synthseg_root = Path(synthseg_root)
+    brain_out = Path(brain_out)
+    csf_out = Path(csf_out)
+    skull_out = Path(skull_out)
 
-    brain_masks = sorted(brain_dir.glob("*_brain_mask.nii.gz"))
+    brain_out.mkdir(parents=True, exist_ok=True)
+    csf_out.mkdir(parents=True, exist_ok=True)
+    skull_out.mkdir(parents=True, exist_ok=True)
 
-    for brain_mask_path in brain_masks:
-        base = brain_mask_path.name  # e.g. U01_..._SynthSeg_resamp_brain_mask.nii.gz
-        root, _ = os.path.splitext(base)
-        root, _ = os.path.splitext(root)
-        subject_root = root.replace("_brain_mask", "")
-
-        csf_name = subject_root + "_CSF_mask.nii.gz"
-        csf_mask_path = csf_dir / csf_name
-
-        if not csf_mask_path.exists():
-            print(f"[SKULL] Missing CSF mask for {brain_mask_path}, expected {csf_mask_path}")
+    print(f"=== Starting Step 1: Brain & CSF Extraction ===")
+    # 1) Per segmentation: extract brain and CSF masks
+    for file in os.listdir(synthseg_root):
+        filename = os.fsdecode(file)
+        if not filename.endswith(".gz"):
             continue
 
-        process_subject(
-            str(brain_mask_path),
-            str(csf_mask_path),
-            str(out_dir),
-            thickness_vox=thickness_vox,
-            min_cc_size=min_cc_size,
+        full_path = synthseg_root / filename
+        extract_brain(full_path, brain_out)
+        extract_CSF(full_path, csf_out)
+
+    print(f"\n=== Starting Step 2: Skull Shell Generation ===")
+    # 2) Build skull masks
+    for file in os.listdir(brain_out):
+        filename = os.fsdecode(file)
+        if not filename.endswith("_brain_mask.nii.gz"):
+            continue
+
+        base = filename.replace("_brain_mask.nii.gz", "")
+        print(f"[SKULL] Processing subject: {base}")
+        
+        # Derive CSF mask path from brain mask filename
+        brain_path = brain_out / filename
+        csf_filename = base + "_CSF_mask.nii.gz"
+        csf_path = csf_out / csf_filename
+
+        if not csf_path.exists():
+            print(f"[ERROR] CSF mask not found for {brain_path}: {csf_path}")
+            raise FileNotFoundError(f"CSF mask not found for {brain_path}: {csf_path}")
+
+        # Load masks
+        brain_img = nib.load(str(brain_path))
+        csf_img = nib.load(str(csf_path))
+
+        brain_mask = brain_img.get_fdata().astype(np.uint8)
+        csf_mask = csf_img.get_fdata().astype(np.uint8)
+
+        # Create skull shell (with island removal)
+        skull_mask = create_skull(
+            brain_mask,
+            csf_mask,
+            thickness_voxels=thickness_voxels,
+            # hook into _remove_small_components via min_size
+            min_size=min_cc_size,
         )
+
+        # Save skull mask
+        skull_filename = base + "_skull_mask.nii.gz"
+        skull_path = skull_out / skull_filename
+
+        skull_img = nib.Nifti1Image(skull_mask.astype(np.uint8), brain_img.affine, brain_img.header)
+        nib.save(skull_img, str(skull_path))
+        print(f"   -> Saved: {skull_filename}\n")
+
+    print("=== Processing Complete ===")
