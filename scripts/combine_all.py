@@ -6,7 +6,7 @@ from autovalidate.combine import combine_all_components
 # Edit these variables for your environment before running.
 
 # Directory of your study
-BASE = "/projectnb/lejlab2/Evangelos_Practice/Test_Autovalidate"
+BASE = "path/to/study"
 
 # Inputs
 BRAIN_DIR = os.path.join(BASE, "Cleaned")
