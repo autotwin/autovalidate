@@ -1,32 +1,44 @@
 import os
 import sys
 from pathlib import Path
-
 import subprocess
 import pytest
+import numpy as np
+import nibabel as nib
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from autovalidate.pipeline import find_t1_scans, run_synthseg_and_resample_t1
+from autovalidate.pipeline import find_t1_scans, run_synthseg_and_resample_strain
 
+def test_run_synthseg_and_resample_strain(tmp_path, monkeypatch):
+    # Setup test directories
+    t1_root = tmp_path / "Original_T1_Scans"
+    strain_root = tmp_path / "Original_Strain_Scans"
+    synthseg_root = tmp_path / "SynthSeg_Outputs"
+    resamp_root = tmp_path / "Resampled_Strain_Scans"
+    
+    t1_root.mkdir()
+    strain_root.mkdir()
 
-def test_build_synthseg_commands(tmp_path, monkeypatch):
-    src = tmp_path / "Original_T1_Scans"
-    src.mkdir()
-    f1 = src / "U01_subj1_tMRIreg_T1.nii.gz"
-    f2 = src / "U01_subj2_tMRIreg_T1.nii.gz"
-    f3 = src / "notes.txt"
-    for f in (f1, f2, f3):
-        f.write_text("x")
+    # Create dummy T1 file
+    f1 = t1_root / "U01_HJF_0001_01_tMRIreg_T1.nii.gz"
+    f1.write_text("x")
 
-    scans = find_t1_scans(src)
-    assert scans == [f1, f2]
+    # Create a real 4D dummy strain NIfTI file (e.g., 2x2x2 space with 3 time frames)
+    f_strain = strain_root / "U01_HJF_0001_01_NR_HFE12_r5_E1_fit.nii.gz"
+    dummy_4d_data = np.zeros((2, 2, 2, 3), dtype=np.float32)
+    dummy_img = nib.Nifti1Image(dummy_4d_data, np.eye(4))
+    nib.save(dummy_img, str(f_strain))
 
-    out_root = tmp_path / "SynthSeg"
-    synthseg_exe = Path("/opt/SynthSeg/synthseg_predict")  # placeholder
-    convert_command = Path("/opt/SynthSeg/mri_convert")
+    # Test file discovery
+    scans = find_t1_scans(t1_root)
+    assert scans == [f1]
+
+    # Mock executables
+    synthseg_exe = Path("/opt/SynthSeg/mri_synthseg")
+    convert_exe = Path("/opt/SynthSeg/mri_convert")
 
     calls: list[list[str]] = []
 
@@ -40,33 +52,47 @@ def test_build_synthseg_commands(tmp_path, monkeypatch):
             stderr = ""
         return R()
 
+    # Intercept subprocess.run
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    run_synthseg_and_resample_t1(
-        input_root=src,
-        synthseg_root=out_root,
-        resampled_t1_root=tmp_path / "Resampled_T1_Scans",
+    # Call the pipeline
+    run_synthseg_and_resample_strain(
+        t1_root=t1_root,
+        strain_root=strain_root,
+        synthseg_root=synthseg_root,
+        resampled_strain_root=resamp_root,
         mri_synthseg_path=synthseg_exe,
-        mri_convert_path=convert_command,
+        mri_convert_path=convert_exe,
+        extra_args=["--threads", "4"],
     )
 
-    # For 2 inputs, expect 4 subprocess calls: 2 x mri_synthseg + 2 x mri_convert
+    # We expect 1 SynthSeg call + 3 mri_convert calls (because we made a dummy 4D file with 3 frames)
     assert len(calls) == 4
 
-    seg_cmd1 = calls[0]
+    seg_cmd = calls[0]
     conv_cmd1 = calls[1]
 
-    # First SynthSeg command
-    assert seg_cmd1[0] == str(synthseg_exe)
-    assert "--i" in seg_cmd1 and "--o" in seg_cmd1
-    assert str(f1) in seg_cmd1
-    expected_seg_out = out_root / "U01_subj1_tMRIreg_T1_SynthSeg.nii.gz"
-    assert str(expected_seg_out) in seg_cmd1
+    # Verify SynthSeg command
+    assert seg_cmd[0] == str(synthseg_exe)
+    assert "--i" in seg_cmd and "--o" in seg_cmd
+    assert str(f1) in seg_cmd
+    expected_seg_out = synthseg_root / "U01_HJF_0001_01_tMRIreg_T1_SynthSeg.nii.gz"
+    assert str(expected_seg_out) in seg_cmd
+    assert "--threads" in seg_cmd and "4" in seg_cmd
 
-    # First mri_convert command: mri_convert --resample_type nearest in --like out out_resamp
-    assert conv_cmd1[0] == str(convert_command)
-    assert conv_cmd1[1:3] == ["--resample_type", "nearest"]
-    assert str(f1) == conv_cmd1[3]          # input_label
+    # Verify First mri_convert command
+    assert conv_cmd1[0] == str(convert_exe)
+    assert conv_cmd1[1:3] == ["--resample_type", "interpolate"]
+    
+    # Check that it uses a temporary frame file as input
+    tmp_input = conv_cmd1[3]
+    assert tmp_input.endswith("strain_frame0_tmp.nii.gz")
+    
+    # Check the --like target
     assert conv_cmd1[4] == "--like"
     assert conv_cmd1[5] == str(expected_seg_out)
-    assert conv_cmd1[6].endswith("_resamp.nii.gz")
+    
+    # Check output resampled frame target
+    final_output = conv_cmd1[6]
+    assert final_output.endswith("_frame0_strain_resamp.nii.gz")
+    assert "U01_HJF_0001_01" in final_output
