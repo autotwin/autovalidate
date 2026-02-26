@@ -1,12 +1,13 @@
 import os
 from pathlib import Path
+import sys
 
 from autovalidate.pipeline import run_synthseg_and_resample_strain
 
 # ===================== USER CONFIGURATION =====================
 
 # Directory of your study
-BASE = "path/to/your/study"
+BASE = "path/to/study"
 
 # Directory where T1 scans are stored 
 T1_ROOT = os.path.join(BASE, "Original_T1_Scans")
@@ -30,8 +31,11 @@ EXTRA_ARGS: list[str] = []
 # =================== END USER CONFIGURATION ===================
 
 def main() -> None:
+    # If a specific file is provided in the terminal, use it. Otherwise, use T1_ROOT.
+    t1_input = sys.argv[1] if len(sys.argv) > 1 else T1_ROOT
+
     run_synthseg_and_resample_strain(
-        t1_root=T1_ROOT,
+        t1_root=t1_input,
         strain_root=STRAIN_ROOT,
         synthseg_root=SYNTHSEG_OUTPUT_ROOT,
         resampled_strain_root=RESAMPLED_STRAIN_ROOT,
@@ -39,6 +43,5 @@ def main() -> None:
         mri_convert_path=MRI_CONVERT_PATH,
         extra_args=EXTRA_ARGS,
     )
-
 if __name__ == "__main__":
     main()
