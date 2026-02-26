@@ -18,8 +18,12 @@ def main():
     # Target directory for Strain data to be moved
     DEST_STRAIN = os.path.join(BASE, "Original_Strain_Scans")
 
+    # Target directory for PVA.mat file to be moved
+    DEST_MAT_DATA = os.path.join(BASE, "PVA_mat_Files")
+
     move_files_by_keyword(source_folder, DEST_ORIG_T1, ["_tMRIreg_T1.nii.gz"])
     move_files_by_keyword(source_folder, DEST_STRAIN, ["r5_E1_fit.nii.gz"])
+    move_files_by_keyword(source_folder, DEST_MAT_DATA, ["PVA.mat"])
 
 if __name__ == "__main__":
     main()
