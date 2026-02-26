@@ -1,140 +1,120 @@
 import os
+from pathlib import Path
 import nibabel as nib
 import numpy as np
-from pathlib import Path
-import matplotlib.pyplot as plt
-from scipy.ndimage import (
-    binary_erosion,
-    binary_dilation,
-    binary_closing, binary_fill_holes,
-    generate_binary_structure,
-)
+from scipy.ndimage import binary_dilation
 from skimage.morphology import ball
 
-def process_one_subject(BRAIN_DIR,CSF_DIR,SKULL_DIR,OUT_DIR,subject_root):
+def add_inner_skull_to_csf(
+    skull_mask: np.ndarray,
+    csf_mask: np.ndarray,
+    inner_thickness_voxels: int,
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    subject_root example:
-        U01_HJF_0006_01_tMRIreg_T1_SynthSeg
+    Take a skull shell mask and CSF mask, extract a thin inner skull layer
+    adjacent to CSF, and add that layer into the CSF mask.
 
-    Expected files:
-        BRAIN_DIR / subject_root + "_brain_mask.nii.gz"
-        CSF_DIR   / subject_root + "_CSF_mask.nii.gz"
-        SKULL_DIR / subject_root + "_braincsf_outer_shell.nii.gz"
+    Inner layer is defined as skull voxels that lie within a dilated CSF
+    neighborhood of user-defined voxel thickness.
+
+    Parameters
+    ----------
+    skull_mask : np.ndarray
+        Binary skull shell mask (0/1).
+    csf_mask : np.ndarray
+        Binary CSF mask (0/1), same shape as skull_mask.
+    inner_thickness_voxels : int
+        Thickness (in voxels) of the CSF neighborhood used to pick inner layer.
+
+    Returns
+    -------
+    new_csf : np.ndarray
+        CSF mask including the inner skull layer.
+    new_skull : np.ndarray
+        Skull mask with that inner layer removed.
     """
-    brain_file = os.path.join(BRAIN_DIR, subject_root + "_brain_mask.nii.gz")
-    csf_file   = os.path.join(CSF_DIR,   subject_root + "_CSF_mask.nii.gz")
-    skull_file = os.path.join(SKULL_DIR, subject_root + "_braincsf_outer_shell.nii.gz")
+    if skull_mask.shape != csf_mask.shape:
+        raise ValueError("skull_mask and csf_mask must have the same shape")
+    if inner_thickness_voxels <= 0:
+        raise ValueError("inner_thickness_voxels must be > 0")
 
-    if not os.path.exists(brain_file):
-        print("Missing brain:", brain_file)
-        return
-    if not os.path.exists(csf_file):
-        print("Missing CSF:", csf_file)
-        return
-    if not os.path.exists(skull_file):
-        print("Missing skull:", skull_file)
-        return
+    print(f"   -> Dilating CSF by {inner_thickness_voxels} voxels to identify boundary layer...")
+    skull = skull_mask.astype(bool)
+    csf = csf_mask.astype(bool)
 
-    print("\n=== Subject:", subject_root, "===")
-    print("brain:", brain_file)
-    print("csf:", csf_file)
-    print("skull:", skull_file)
+    # 1) Dilate CSF outwards by the requested thickness
+    struct = ball(inner_thickness_voxels)  # 3D neighborhood 
+    csf_dil = binary_dilation(csf, structure=struct)  # CSF neighborhood 
 
-    # ---- load masks ----
-    skull_img = nib.load(skull_file)
-    csf_img   = nib.load(csf_file)
-    brain_img = nib.load(brain_file)
+    # 2) Inner skull layer = skull voxels that lie inside the dilated CSF region
+    print("   -> Transferring intersecting voxels from Skull to CSF...")
+    inner_layer = skull & csf_dil
 
-    skull = skull_img.get_fdata().astype(bool)
-    csf   = csf_img.get_fdata().astype(bool)
-    brain = brain_img.get_fdata().astype(bool)
+    # 3) New masks
+    new_csf = csf | inner_layer          # move inner layer into CSF
+    new_skull = skull & ~inner_layer     # remove it from skull
 
-    if not (skull.shape == csf.shape == brain.shape):
-        print("Shape mismatch; skipping", subject_root)
-        return
+    transferred = np.count_nonzero(inner_layer)
+    print(f"   -> Successfully transferred {transferred} voxels.")
 
-    print("skull shape:", skull.shape)
-    print("csf shape: ", csf.shape)
-    print("brain shape:", brain.shape)
+    return new_csf.astype(np.uint8), new_skull.astype(np.uint8)
 
-    conn = generate_binary_structure(3, 2)  # 26-connectivity
 
-    # ---- inside mask (brain + CSF) ----
-    inside = brain | csf
-
-    # ---- skullâ€“(brain+CSF) 1-voxel interface ----
-    skull_eroded   = binary_erosion(skull, structure=conn)
-    skull_boundary = skull & ~skull_eroded
-
-    inside_dilated = binary_dilation(inside, structure=conn)
-
-    inner_layer = skull_boundary & inside_dilated
-
-    print("boundary voxels:", np.count_nonzero(skull_boundary))
-    print("inner-layer voxels:", np.count_nonzero(inner_layer))
-
-    # ---- move inner_layer: skull -> CSF ----
-    skull_new = skull & ~inner_layer
-    csf_new   = csf | inner_layer
-
-    overlap = skull_new & csf_new
-    print("overlap voxels after move:", np.count_nonzero(overlap))
-    if np.count_nonzero(overlap) > 0:
-        skull_new = skull_new & ~overlap
-        print("overlap cleared; remaining:",
-              np.count_nonzero(skull_new & csf_new))
-
-    # ---- save updated masks ----
-    skull_out_img = nib.Nifti1Image(skull_new.astype(np.uint8), skull_img.affine)
-    csf_out_img   = nib.Nifti1Image(csf_new.astype(np.uint8), csf_img.affine)
-
-    skull_out_path = os.path.join(OUT_DIR, subject_root + "_skull_without_interface.nii.gz")
-    csf_out_path   = os.path.join(OUT_DIR, subject_root + "_CSF_with_interface.nii.gz")
-
-    nib.save(skull_out_img, skull_out_path)
-    nib.save(csf_out_img, csf_out_path)
-
-    print("Saved:", skull_out_path)
-    print("Saved:", csf_out_path)
-
-def fill_brain_and_csf_separately(
-    brain_mask_path: Path,
-    csf_mask_path: Path,
-    out_brain_path: Path,
-    out_csf_path: Path,
-    closing_radius: int = 1,
+def process_one_subject(
+    brain_dir: str | Path,
+    csf_dir: str | Path,
+    skull_dir: str | Path,
+    out_dir: str | Path,
+    subject_root: str,
+    inner_thickness_voxels: int = 2,
 ) -> None:
-    brain_img = nib.load(str(brain_mask_path))
-    csf_img = nib.load(str(csf_mask_path))
+    """
+    For one subject:
+      - Load CSF and skull masks.
+      - Extract an inner skull layer adjacent to CSF (user-defined thickness).
+      - Add that layer to CSF and remove it from skull.
+      - Save NEW CSF and NEW skull masks as separate files.
+    """
+    brain_dir = Path(brain_dir)
+    csf_dir = Path(csf_dir)
+    skull_dir = Path(skull_dir)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    brain = brain_img.get_fdata() > 0
-    csf = csf_img.get_fdata() > 0
+    print(f"\n[BOUNDARY] Processing morphology for subject: {subject_root}")
 
-    if brain.shape != csf.shape:
-        raise ValueError(f"Shape mismatch: brain {brain.shape}, CSF {csf.shape}")
+    csf_path = csf_dir / f"{subject_root}_CSF_mask.nii.gz"
+    skull_path = skull_dir / f"{subject_root}_skull_mask.nii.gz"
 
-    brain_csf = brain | csf
+    if not csf_path.exists():
+        print(f"[ERROR] CSF mask not found: {csf_path}")
+        raise FileNotFoundError(f"CSF mask not found: {csf_path}")
+    if not skull_path.exists():
+        print(f"[ERROR] Skull mask not found: {skull_path}")
+        raise FileNotFoundError(f"Skull mask not found: {skull_path}")
 
-    selem = ball(closing_radius)
-    closed = binary_closing(brain_csf, structure=selem) 
-    filled = binary_fill_holes(closed)  
+    print("   -> Loading original CSF and Skull masks...")
+    csf_img = nib.load(str(csf_path))
+    skull_img = nib.load(str(skull_path))
 
-    # Voxels that were added by filling (not present in original brain+CSF)
-    added = filled & ~brain_csf
+    csf_mask = csf_img.get_fdata().astype(np.uint8)
+    skull_mask = skull_img.get_fdata().astype(np.uint8)
 
-    # Keep original masks inside filled support
-    brain_filled = (brain & filled)
-    csf_filled = (csf & filled)
-
-    # Assign added voxels to CSF (you can change this rule if needed)
-    csf_filled |= added
-
-    brain_img_out = nib.Nifti1Image(
-        brain_filled.astype(np.uint8), brain_img.affine, brain_img.header
+    new_csf, new_skull = add_inner_skull_to_csf(
+        skull_mask=skull_mask,
+        csf_mask=csf_mask,
+        inner_thickness_voxels=inner_thickness_voxels,
     )
-    csf_img_out = nib.Nifti1Image(
-        csf_filled.astype(np.uint8), csf_img.affine, csf_img.header
-    )
 
-    nib.save(brain_img_out, str(out_brain_path))
-    nib.save(csf_img_out, str(out_csf_path))
+    print("   -> Saving updated NIfTI files...")
+    # Save NEW CSF mask
+    new_csf_path = out_dir / f"{subject_root}_CSF_with_inner_layer.nii.gz"
+    new_csf_img = nib.Nifti1Image(new_csf.astype(np.uint8), csf_img.affine, csf_img.header)
+    nib.save(new_csf_img, str(new_csf_path))
+    print(f"      - {new_csf_path.name}")
+
+    # Save NEW skull mask
+    new_skull_path = out_dir / f"{subject_root}_skull_without_inner_layer.nii.gz"
+    new_skull_img = nib.Nifti1Image(new_skull.astype(np.uint8), skull_img.affine, skull_img.header)
+    nib.save(new_skull_img, str(new_skull_path))
+    print(f"      - {new_skull_path.name}")
