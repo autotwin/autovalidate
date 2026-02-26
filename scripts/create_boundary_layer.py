@@ -7,7 +7,7 @@ from autovalidate.morphology import process_one_subject
 # ===================== USER CONFIGURATION =====================
 
 # Directory of your study
-BASE = "/projectnb/lejlab2/Evangelos_Practice/Test_Autovalidate"
+BASE = "path/to/study"
 
 # Directory where Brain files are stored
 BRAIN_OUTPUT_ROOT = os.path.join(BASE, "Extracted_Brains")
