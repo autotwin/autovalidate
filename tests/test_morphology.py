@@ -1,9 +1,14 @@
 import os
+import sys
 from pathlib import Path
 
 import nibabel as nib
 import numpy as np
 import pytest
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from autovalidate.morphology import process_one_subject
 
@@ -28,35 +33,37 @@ def test_process_one_subject_moves_interface_voxels(tmp_path):
 
     shape = (5, 5, 5)
 
-    # Brain: a solid cube in the center
+    # Brain: solid cube
     brain = np.zeros(shape, dtype=bool)
-    brain[2, 2, 2] = True
 
-    # CSF: empty initially
+    # CSF: A single voxel in the center
     csf = np.zeros(shape, dtype=bool)
+    csf[2, 2, 2] = True
 
-    # Skull: a one-voxel-thick shell around the center voxel
+    # Skull: A cross shape surrounding the center CSF voxel
     skull = np.zeros(shape, dtype=bool)
     skull[1:4, 2, 2] = True
     skull[2, 1:4, 2] = True
     skull[2, 2, 1:4] = True
+    skull[2, 2, 2] = False  # Keep the center clear so it doesn't overlap CSF initially
 
     # Save input masks
     _save_mask(brain_dir / f"{subject_root}_brain_mask.nii.gz", brain)
     _save_mask(csf_dir / f"{subject_root}_CSF_mask.nii.gz", csf)
-    _save_mask(skull_dir / f"{subject_root}_braincsf_outer_shell.nii.gz", skull)
+    _save_mask(skull_dir / f"{subject_root}_skull_mask.nii.gz", skull)
 
     # Run
     process_one_subject(
-        BRAIN_DIR=str(brain_dir),
-        CSF_DIR=str(csf_dir),
-        SKULL_DIR=str(skull_dir),
-        OUT_DIR=str(out_dir),
+        brain_dir=str(brain_dir),
+        csf_dir=str(csf_dir),
+        skull_dir=str(skull_dir),
+        out_dir=str(out_dir),
         subject_root=subject_root,
+        inner_thickness_voxels=1,
     )
 
-    skull_out = out_dir / f"{subject_root}_skull_without_interface.nii.gz"
-    csf_out = out_dir / f"{subject_root}_CSF_with_interface.nii.gz"
+    skull_out = out_dir / f"{subject_root}_skull_without_inner_layer.nii.gz"
+    csf_out = out_dir / f"{subject_root}_CSF_with_inner_layer.nii.gz"
 
     assert skull_out.exists()
     assert csf_out.exists()
@@ -72,12 +79,12 @@ def test_process_one_subject_moves_interface_voxels(tmp_path):
     assert np.count_nonzero(skull_new & csf_new) == 0
 
     # Interface voxels should have been moved from skull to CSF:
-    # original skull had nonzero voxels
+    # meaning the new skull has fewer voxels, and the new CSF has more.
     assert np.count_nonzero(skull) > np.count_nonzero(skull_new)
     assert np.count_nonzero(csf_new) > np.count_nonzero(csf)
 
 
-def test_process_one_subject_missing_inputs(tmp_path, capsys):
+def test_process_one_subject_missing_inputs(tmp_path):
     brain_dir = tmp_path / "brains"
     csf_dir = tmp_path / "csf"
     skull_dir = tmp_path / "skull"
@@ -87,18 +94,20 @@ def test_process_one_subject_missing_inputs(tmp_path, capsys):
 
     subject_root = "SUBJ_MISSING"
 
-    # Only create brain, leave csf + skull missing
+    # Only create brain, intentionally leave csf + skull missing
     _save_mask(brain_dir / f"{subject_root}_brain_mask.nii.gz", np.zeros((3, 3, 3)))
 
-    process_one_subject(
-        BRAIN_DIR=str(brain_dir),
-        CSF_DIR=str(csf_dir),
-        SKULL_DIR=str(skull_dir),
-        OUT_DIR=str(out_dir),
-        subject_root=subject_root,
-    )
+    # Instead of checking capsys print statements, we verify the code correctly
+    # crashes by raising a FileNotFoundError when the masks don't exist.
+    with pytest.raises(FileNotFoundError):
+        process_one_subject(
+            brain_dir=str(brain_dir),
+            csf_dir=str(csf_dir),
+            skull_dir=str(skull_dir),
+            out_dir=str(out_dir),
+            subject_root=subject_root,
+            inner_thickness_voxels=1,
+        )
 
-    captured = capsys.readouterr()
-    assert "Missing CSF:" in captured.out or "Missing skull:" in captured.out
-    # No outputs should be created
+    # Verify no outputs were created
     assert not any(out_dir.iterdir())
