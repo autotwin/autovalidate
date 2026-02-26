@@ -8,10 +8,14 @@ import numpy as np
 
 def find_t1_scans(root: Path, name_substring: str = "T1") -> List[Path]:
     """
-    Return all .nii.gz files directly under `root` whose filename contains
-    `name_substring` (default: 'T1').
+    Return all .nii.gz files directly under `root`. If `root` is a file, 
+    return just that file.
     """
     root = Path(root)
+    
+    if root.is_file():
+        return [root]
+ 
     return sorted(
         p
         for p in root.iterdir()
@@ -40,22 +44,13 @@ def _synthseg_output_path(input_path: Path, output_root: Path) -> Path:
     return output_root / out_name
 
 
-def _resampled_strain_path(t1_path: Path, resampled_root: Path) -> Path:
-    """
-    Given a T1 path, return the full output path for the resampled strain
-    under resampled_root, appending '_strain_resamp.nii.gz'.
-    """
-    t1_path = Path(t1_path)
-    resampled_root = Path(resampled_root)
 
-    name = t1_path.name
-    if name.endswith(".nii.gz"):
-        stem = name[:-7]
-    else:
-        stem = t1_path.stem
+def _subject_id_from_t1(t1_path: Path) -> str:
+    parts = t1_path.name.split("_")
+    if len(parts) >= 4:
+        return "_".join(parts[:4])          # e.g. U01_HJF_0001_01
+    return t1_path.stem.split(".nii")[0]
 
-    out_name = stem + "_strain_resamp.nii.gz"
-    return resampled_root / out_name
 
 
 def _find_strain_for_t1(t1_path: Path, strain_root: Path) -> Path | None:
@@ -126,6 +121,8 @@ def run_synthseg_and_resample_strain(
         seg_out = _synthseg_output_path(t1, synthseg_root)
         seg_out.parent.mkdir(parents=True, exist_ok=True)
 
+        subject_id = _subject_id_from_t1(t1)
+
         seg_cmd = [
             str(mri_synthseg_path),
             "--i", str(t1),
@@ -150,47 +147,54 @@ def run_synthseg_and_resample_strain(
             print(f"[STRAIN] Missing strain for {t1} under {strain_root}")
             continue
 
-        # 3) Load 4D strain and extract 2nd time frame (index 1)
         strain_img = nib.load(strain_path)
         strain_data = strain_img.get_fdata()
         if strain_data.ndim != 4 or strain_data.shape[3] < 2:
             print(f"[STRAIN] Unexpected shape for {strain_path}: {strain_data.shape}")
             continue
 
-        frame1 = strain_data[..., 1]
+        frames = strain_data.shape[3]
+        print(f"[INFO] Processing {frames} frames for subject {subject_id}")
 
-        # Save this 3D frame to a temporary NIfTI
-        tmp_frame_path = resampled_strain_root / (t1.stem + "_strain_frame2_tmp.nii.gz")
-        nib.save(
-            nib.Nifti1Image(frame1.astype(np.float32), strain_img.affine, strain_img.header),
-            str(tmp_frame_path),
-        )
+        subj_dir = resampled_strain_root / subject_id
+        subj_dir.mkdir(parents=True, exist_ok=True)
 
-        # 4) Resample this 3D frame to SynthSeg grid
-        resamp_strain = _resampled_strain_path(t1, resampled_strain_root)
-        resamp_strain.parent.mkdir(parents=True, exist_ok=True)
+        for k in range(frames):
 
-        conv_cmd = [
-            str(mri_convert_path),
-            "--resample_type", "nearest",
-            str(tmp_frame_path),
-            "--like", str(seg_out),
-            str(resamp_strain),
-        ]
-        print("COMMAND:", " ".join(conv_cmd))
-        conv_res = subprocess.run(
-            conv_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        if conv_res.returncode != 0:
-            print(f"[ERROR] mri_convert failed for {strain_path}")
-            print(conv_res.stderr)
-        else:
-            print(f"[OK] Resampled strain (frame 2) to {resamp_strain}")
-            # Remove temporary 3D frame file to avoid clutter
-            try:
-                os.remove(tmp_frame_path)
-            except OSError as e:
-                print(f"[WARN] Could not delete temporary file {tmp_frame_path}: {e}")
+            k_frame = strain_data[..., k]
+
+            # Save this 3D frame to a temporary NIfTI
+            tmp_frame_path = subj_dir / f"{subject_id}_strain_frame{k}_tmp.nii.gz"
+            nib.save(
+                nib.Nifti1Image(k_frame.astype(np.float32), strain_img.affine, header=None),
+                str(tmp_frame_path),
+            )
+
+            # 4) Resample this 3D frame to SynthSeg grid
+            resamp_strain = subj_dir / f"{subject_id}_frame{k}_strain_resamp.nii.gz"
+            resamp_strain.parent.mkdir(parents=True, exist_ok=True)
+
+            conv_cmd = [
+                str(mri_convert_path),
+                "--resample_type", "interpolate",
+                str(tmp_frame_path),
+                "--like", str(seg_out),
+                str(resamp_strain),
+            ]
+            print("COMMAND:", " ".join(conv_cmd))
+            conv_res = subprocess.run(
+                conv_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            if conv_res.returncode != 0:
+                print(f"[ERROR] mri_convert failed for {strain_path}")
+                print(conv_res.stderr)
+            else:
+                print(f"[OK] Resampled strain (frame {k+1}) to {resamp_strain}")
+                # Remove temporary 3D frame file to avoid clutter
+                try:
+                    os.remove(tmp_frame_path)
+                except OSError as e:
+                    print(f"[WARN] Could not delete temporary file {tmp_frame_path}: {e}")
