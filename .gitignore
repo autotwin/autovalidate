@@ -1,23 +1,23 @@
-# Byte-compiled / cache files
+# Python
 __pycache__/
-*.py[cod]
-
-# Virtual environments (if created inside project)
-.env/
-.venv/
-venv/
-
-# Packaging / build artifacts
-*.egg
+*.pyc
+*.pyo
 *.egg-info/
 dist/
 build/
 
-# Test / coverage artifacts
-.coverage
-htmlcov/
-pytest_cache/
+# Testing
+.pytest_cache/
 
-# OS / editor files
+# mdBook build output
+book/build/
+
+# HPC subject-specific configs (not part of the pipeline)
+hpc/configs/
+
+# Editor
+.vscode/
+.idea/
+
+# OS
 .DS_Store
-*.swp

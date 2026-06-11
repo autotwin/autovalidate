@@ -1,0 +1,36 @@
+# Autovalidate Configuration Template
+# Fill in the paths and options below before running the pipeline.
+
+[env]
+# Required for SynthSeg and membrane processing (mri_convert)
+# Required for SynthSeg only (mri_synthseg)
+# Required for FSL only (bet, fast)
+mri_convert  = "/path/to/freesurfer/bin/mri_convert"
+mri_synthseg = "/path/to/freesurfer/bin/mri_synthseg"
+bet          = "/path/to/fsl/bin/bet"
+fast         = "/path/to/fsl/bin/fast"
+
+[run]
+# Segmentation algorithm: "synthseg", "fsl", or "slant"
+algorithm = "synthseg"
+
+# Brain tissue fidelity: "homogeneous" or "heterogeneous"
+brain_fidelity = "homogeneous"
+
+# Whether to include falx and tentorium membranes
+include_membranes = true
+
+# Motion type: "NR" (no replacement) or "NE" (no exercise)
+motion_type = "NR"
+
+# Absolute path to the subject's data directory
+subject_dir = "/path/to/subject/directory"
+
+# Absolute path to the output directory (results will be saved under output_dir/algorithm/fidelity/membranes/subject_id/)
+output_dir = "/path/to/output/directory"
+
+# Subject identifier (e.g. "U01_HJF_0001_01")
+subject_id = "subject_id"
+
+# Whether to keep intermediate files (e.g. BET brain mask, FAST segmentation) in the output folder
+keep_intermediate_files = false
