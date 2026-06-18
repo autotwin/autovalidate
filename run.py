@@ -9,7 +9,7 @@ import argparse
 import tomllib
 from pathlib import Path
 import subprocess
-import tempfile
+import shutil
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -48,34 +48,39 @@ if __name__ == "__main__":
 
     path_dict = path_resolver.path_resolving(subj_dir, algorithm, include_membranes)
 
+    membranes_str = "membranesON" if include_membranes else "membranesOFF"
+    subject_dir = Path(cfg.output_dir) / algorithm / cfg.brain_fidelity / membranes_str / cfg.subject_id
+    subject_dir.mkdir(parents=True, exist_ok=True)
+
+    tmp_dir = subject_dir / "intermediate"
+    tmp_dir.mkdir(exist_ok=True)
+
     # Step 5: Algorithm dispatch
     print(f"[4/10] Running segmentation ({algorithm})...")
     if algorithm == "synthseg":
         mri_synthseg_path = Path(cfg.mri_synthseg)
         T1_image_path = Path(path_dict["t1"])
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            synthseg_command_line = synthseg.create_synthseg_command(mri_synthseg_path, T1_image_path, Path(tmp_dir))
-            subprocess.run(synthseg_command_line, check=True)
-            seg_out_filepath = Path(tmp_dir) / (Path(T1_image_path.stem).stem + "_SynthSeg.nii.gz")
-            seg_output_file_data, seg_output_file_affine = nifti_io.load_nifti(seg_out_filepath)
+        synthseg_command_line = synthseg.create_synthseg_command(mri_synthseg_path, T1_image_path, tmp_dir)
+        subprocess.run(synthseg_command_line, check=True)
+        seg_out_filepath = tmp_dir / (Path(T1_image_path.stem).stem + "_SynthSeg.nii.gz")
+        seg_output_file_data, seg_output_file_affine = nifti_io.load_nifti(seg_out_filepath)
 
     elif algorithm == "fsl":
         bet_path  = Path(cfg.bet)
         fast_path = Path(cfg.fast)
         t1_path   = Path(path_dict["t1"])
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            # 1. BET: skull-strip the T1
-            brain_prefix = Path(tmp_dir) / "brain"
-            bet_command_line = fsl.create_bet_command(bet_path, t1_path, brain_prefix)
-            subprocess.run(bet_command_line, check=True)
-            # 2. FAST: tissue segmentation on brain-extracted image
-            brain_path   = Path(tmp_dir) / "brain.nii.gz"
-            fast_prefix  = Path(tmp_dir) / "fast"
-            fast_command_line = fsl.create_fast_command(fast_path, brain_path, fast_prefix)
-            subprocess.run(fast_command_line, check=True)
-            # 3. Load hard segmentation (fast_seg.nii.gz)
-            seg_out_filepath = Path(tmp_dir) / "fast_seg.nii.gz"
-            seg_output_file_data, seg_output_file_affine = nifti_io.load_nifti(seg_out_filepath)
+        # 1. BET: skull-strip the T1
+        brain_prefix = tmp_dir / "brain"
+        bet_command_line = fsl.create_bet_command(bet_path, t1_path, brain_prefix)
+        subprocess.run(bet_command_line, check=True)
+        # 2. FAST: tissue segmentation on brain-extracted image
+        brain_path   = tmp_dir / "brain.nii.gz"
+        fast_prefix  = tmp_dir / "fast"
+        fast_command_line = fsl.create_fast_command(fast_path, brain_path, fast_prefix)
+        subprocess.run(fast_command_line, check=True)
+        # 3. Load hard segmentation (fast_seg.nii.gz)
+        seg_out_filepath = tmp_dir / "fast_seg.nii.gz"
+        seg_output_file_data, seg_output_file_affine = nifti_io.load_nifti(seg_out_filepath)
 
     elif algorithm == "slant":
         segmented_filepath = Path(path_dict["slant_seg"])
@@ -124,19 +129,18 @@ if __name__ == "__main__":
         falx_filepath = Path(path_dict["falx"])
         tentorium_filepath = Path(path_dict["tentorium"])
         mri_convert_path = Path(cfg.mri_convert)
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            brain_mask_output_file = Path(tmp_dir) / "brain_mask_ref.nii.gz"
-            nifti_io.save_nifti(brain_mask, seg_output_file_affine, brain_mask_output_file)
-            falx_output_file = Path(tmp_dir) / "falx_resampled.nii.gz"
-            falx_convert_command_line = file_io.create_mri_convert_command(mri_convert_path, falx_filepath, falx_output_file, brain_mask_output_file, "nearest")
-            subprocess.run(falx_convert_command_line, check=True)
-            tentorium_output_file = Path(tmp_dir) / "tentorium_resampled.nii.gz"
-            tentorium_convert_command_line = file_io.create_mri_convert_command(mri_convert_path, tentorium_filepath, tentorium_output_file, brain_mask_output_file, "nearest")
-            subprocess.run(tentorium_convert_command_line, check=True)
-            falx_data, falx_affine = nifti_io.load_nifti(Path(tmp_dir) / "falx_resampled.nii.gz")
-            tentorium_data, tentorium_affine = nifti_io.load_nifti(Path(tmp_dir) / "tentorium_resampled.nii.gz")
-            membranes_mask = falx_data | tentorium_data
-            membranes_mask, wm_mask, gm_mask, csf_mask, skull_mask = overlaps.resolve_membrane_priority(membranes_mask, wm_mask, gm_mask, csf_mask, skull_mask)
+        brain_mask_output_file = tmp_dir / "brain_mask_ref.nii.gz"
+        nifti_io.save_nifti(brain_mask, seg_output_file_affine, brain_mask_output_file)
+        falx_output_file = tmp_dir / "falx_resampled.nii.gz"
+        falx_convert_command_line = file_io.create_mri_convert_command(mri_convert_path, falx_filepath, falx_output_file, brain_mask_output_file, "nearest")
+        subprocess.run(falx_convert_command_line, check=True)
+        tentorium_output_file = tmp_dir / "tentorium_resampled.nii.gz"
+        tentorium_convert_command_line = file_io.create_mri_convert_command(mri_convert_path, tentorium_filepath, tentorium_output_file, brain_mask_output_file, "nearest")
+        subprocess.run(tentorium_convert_command_line, check=True)
+        falx_data, falx_affine = nifti_io.load_nifti(tmp_dir / "falx_resampled.nii.gz")
+        tentorium_data, tentorium_affine = nifti_io.load_nifti(tmp_dir / "tentorium_resampled.nii.gz")
+        membranes_mask = falx_data | tentorium_data
+        membranes_mask, wm_mask, gm_mask, csf_mask, skull_mask = overlaps.resolve_membrane_priority(membranes_mask, wm_mask, gm_mask, csf_mask, skull_mask)
     else:
         print("       skipped (include_membranes = false)")
         membranes_mask = None
@@ -154,16 +158,15 @@ if __name__ == "__main__":
 
     # Step 11: Save output
     print("[10/10] Saving outputs...")
-    membranes_str = "membranesON" if include_membranes else "membranesOFF"
-    subject_dir = Path(cfg.output_dir) / algorithm / cfg.brain_fidelity / membranes_str / cfg.subject_id
-    subject_dir.mkdir(parents=True, exist_ok=True)
-
     combined_npy_filename = filename_builder.filename_building(cfg.subject_id, cfg.motion_type, algorithm, cfg.brain_fidelity, include_membranes, "combined")
     npy_io.save_npy(combined_labels, file_path=subject_dir / combined_npy_filename)
 
     print("        Saving .nii.gz...")
     combined_nii_filename = filename_builder.filename_building(cfg.subject_id, cfg.motion_type, algorithm, cfg.brain_fidelity, include_membranes, "combined_labels")
     nifti_io.save_nifti(combined_labels, seg_output_file_affine, file_path=subject_dir / combined_nii_filename)
+
+    if not cfg.keep_intermediate_files:
+        shutil.rmtree(tmp_dir)
 
     print(f"\nDone. Output files:")
     print(f"  {subject_dir / combined_npy_filename}")
