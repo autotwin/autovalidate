@@ -158,7 +158,7 @@ if __name__ == "__main__":
     npy_io.save_npy(combined_labels, file_path = Path(cfg.output_dir) / combined_npy_filename)
 
     print("        Saving .nii.gz...")
-    combined_nii_filename = filename_builder.filename_building(cfg.subject_id, cfg.motion_type, algorithm, cfg.brain_fidelity, include_membranes, "combined")
+    combined_nii_filename = filename_builder.filename_building(cfg.subject_id, cfg.motion_type, algorithm, cfg.brain_fidelity, include_membranes, "combined_labels")
     nifti_io.save_nifti(combined_labels, seg_output_file_affine, file_path = Path(cfg.output_dir) / combined_nii_filename)
 
     print(f"\nDone. Output files:")
