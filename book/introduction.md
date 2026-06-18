@@ -32,6 +32,10 @@ T1 MRI
               └── autosim      →  simulation results (.odb)
 ```
 
+![Section cut of the combined label map showing White Matter (white), CSF (red), Skull (green) and Membranes (blue)](img/section_cut.png)
+
+![Section cut of the combined label map showing White Matter (white), Gray Matter (grey), CSF (blue), Skull (green) and Membranes (red)](img/section_cut.png)
+
 ## Supported algorithms
 
 Autovalidate supports three segmentation algorithms — [SynthSeg](algorithms/synthseg.md), [FSL FAST](algorithms/fsl.md), and [SLANT](algorithms/slant.md) — and two fidelity levels: [homogeneous](fidelity.md) and [heterogeneous](fidelity.md).
