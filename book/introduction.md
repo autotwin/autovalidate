@@ -21,6 +21,8 @@ For each subject, Autovalidate saves two files under `{output_dir}/{algorithm}/{
 
 The label values follow a fixed schema (see [Volume Labels](labels.md)).
 
+![Section cut of the combined label map showing White Matter (white), Gray Matter (grey), CSF (blue), Skull (green) and Membranes (red)](img/section_cut.png)
+
 The resulting label map is passed directly to [automesh](https://github.com/autotwin/automesh) for mesh generation and then to [autosim](https://github.com/autotwin/autosim) for finite element simulation.
 
 ## Where it fits
@@ -31,10 +33,6 @@ T1 MRI
         └── automesh     →  finite element mesh (.inp)
               └── autosim      →  simulation results (.odb)
 ```
-
-![Section cut of the combined label map showing White Matter (white), CSF (red), Skull (green) and Membranes (blue)](img/section_cut.png)
-
-![Section cut of the combined label map showing White Matter (white), Gray Matter (grey), CSF (blue), Skull (green) and Membranes (red)](img/section_cut.png)
 
 ## Supported algorithms
 
