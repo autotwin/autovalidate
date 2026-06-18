@@ -154,13 +154,17 @@ if __name__ == "__main__":
 
     # Step 11: Save output
     print("[10/10] Saving outputs...")
+    membranes_str = "membranesON" if include_membranes else "membranesOFF"
+    subject_dir = Path(cfg.output_dir) / algorithm / cfg.brain_fidelity / membranes_str / cfg.subject_id
+    subject_dir.mkdir(parents=True, exist_ok=True)
+
     combined_npy_filename = filename_builder.filename_building(cfg.subject_id, cfg.motion_type, algorithm, cfg.brain_fidelity, include_membranes, "combined")
-    npy_io.save_npy(combined_labels, file_path = Path(cfg.output_dir) / combined_npy_filename)
+    npy_io.save_npy(combined_labels, file_path=subject_dir / combined_npy_filename)
 
     print("        Saving .nii.gz...")
     combined_nii_filename = filename_builder.filename_building(cfg.subject_id, cfg.motion_type, algorithm, cfg.brain_fidelity, include_membranes, "combined_labels")
-    nifti_io.save_nifti(combined_labels, seg_output_file_affine, file_path = Path(cfg.output_dir) / combined_nii_filename)
+    nifti_io.save_nifti(combined_labels, seg_output_file_affine, file_path=subject_dir / combined_nii_filename)
 
     print(f"\nDone. Output files:")
-    print(f"  {Path(cfg.output_dir) / combined_npy_filename}")
-    print(f"  {Path(cfg.output_dir) / combined_nii_filename}")
+    print(f"  {subject_dir / combined_npy_filename}")
+    print(f"  {subject_dir / combined_nii_filename}")
