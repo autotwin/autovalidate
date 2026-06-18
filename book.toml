@@ -1,0 +1,17 @@
+[book]
+title = "autovalidate"
+description = "Automated brain mask generation pipeline for finite element model validation."
+language = "en"
+src = "book/"
+
+[build]
+build-dir = "book/build/"
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/autotwin/autovalidate"
+edit-url-template = "https://github.com/autotwin/autovalidate/edit/main/{path}"
+
+[output.html.fold]
+enable = true
+level = 0
