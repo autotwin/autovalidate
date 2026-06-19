@@ -20,7 +20,6 @@
 
 - [Bring Your Own Algorithm](tutorials/new_algorithm.md)
 - [Add a New Tissue Region](tutorials/new_region.md)
-- [Change CSF Layer Thickness](tutorials/csf_thickness.md)
 - [Add a New Fidelity Level](tutorials/new_fidelity.md)
 - [Bring Your Own Subject Data](tutorials/own_data.md)
 - [Visualise the Output](tutorials/visualise.md)
