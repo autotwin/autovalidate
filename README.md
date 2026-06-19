@@ -4,6 +4,8 @@ Automated brain mask generation pipeline for finite element model validation.
 
 Autovalidate takes a subject's T1 MRI and produces a unified label map (`.npy` + `.nii.gz`) ready for mesh generation and simulation. It supports three segmentation algorithms, two fidelity levels, and optional falx/tentorium membranes.
 
+For detailed documentation on Autovalidate please check: [https://autotwin.github.io/autovalidate/](https://autotwin.github.io/autovalidate/)
+
 ## Installation
 
 Python 3.11 or higher is required.
