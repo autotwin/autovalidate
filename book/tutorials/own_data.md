@@ -52,8 +52,8 @@ keep_intermediate_files = false
 
 `motion_type` tags the output filename and is used to locate experimental data for comparison. Set it to:
 
-- `NR` — Natural Response (head free to move)
-- `NE` — No Extension (head constrained)
+- `NR` — Neck Rotation
+- `NE` — Neck Extension
 
 If you are not comparing against experimental data, either value works — it only affects the output filename.
 
