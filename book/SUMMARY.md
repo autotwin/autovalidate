@@ -22,5 +22,4 @@
 - [Add a New Tissue Region](tutorials/new_region.md)
 - [Add a New Fidelity Level](tutorials/new_fidelity.md)
 - [Bring Your Own Subject Data](tutorials/own_data.md)
-- [Visualise the Output](tutorials/visualise.md)
 - [Diagnose a Failed Segmentation](tutorials/diagnose.md)
